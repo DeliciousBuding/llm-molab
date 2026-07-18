@@ -1,97 +1,77 @@
-# Persistence & fast restore
+# Package-first persistence (有配额就塞)
 
-最后更新：2026-07-19 03:05
+最后更新：2026-07-19 04:20
 
-## What survives a molab notebook restart
+## 原则（按你的要求）
 
-| Path | Survives? | Contents |
-|------|-----------|----------|
-| `/marimo/models/...` | **Yes** (usually) | HF weights (~35G) |
-| `/marimo/llm-lab/.venv-sglang` | **Yes** | SGLang + torch |
-| `/marimo/llm-lab/state/serve.env` | **Yes** | Non-secret serve knobs |
-| `/marimo/llm-lab/logs` | **Yes** | Prior logs |
-| `/marimo/work/llm-molab` | **Yes** | This repo clone |
-| `/tmp/.secrets` | **No** | HF / API key / tunnel token |
-| Process PIDs / CUDA graphs | **No** | Must relaunch |
+1. **有配额 → 往 notebook package / `/marimo` 工作区塞**，remint 后优先从 package 恢复，保证效率。  
+2. **权重、cloudflared、推理 venv、脚本** 全部落在 **固定 `/marimo/...` 路径**，禁止只放 `/tmp`。  
+3. **密钥永远不进 package**（`/tmp/.secrets` + 本机 `server-secrets`）。  
+4. remint 后：**有则 skip，缺则下/装**（幂等 ensure）。
 
-**Observed 2026-07-19:** a full molab sandbox **replace** (new `sb-…` id after 410) can wipe `/marimo` even for the same notebook — treat durable paths as “best effort”, not guaranteed. After any new sandbox id, run `11_restore.sh` (it re-downloads / reinstalls if missing). Same-sandbox process restart keeps `/marimo`.
+官方：每 notebook 有 **limited persistent storage**（侧栏文件树，R2）。无公开 GB 数字；**实测以 `du` + remint 探针为准**。  
+参考：[molab guide](https://docs.marimo.io/guides/molab/) · [announcing molab](https://marimo.io/blog/announcing-molab)
 
-## Durable layout
+## 证据（本会话）
+
+| 路径 | 跨 410 remint | 说明 |
+|------|---------------|------|
+| `/marimo/DiffAudit-Research-Server` (~341M) | **在** | package/workspace 同步层 |
+| `/marimo/notebook.py` `pyproject.toml` | **在** | notebook 包 |
+| `/marimo/models/Qwen…` (35G) | **曾不在** | 写在运行时盘或未进同步/超限；**策略改为强制写 `/marimo/models` + remint 探针** |
+| `/tmp/.secrets` | **不在** | 预期 |
+
+结论：DiffAudit 证明 **package 通道有效**。35G 该走 **同一 `/marimo` 树**；能否留下取决于 **配额与同步**，不是“别塞”。
+
+## 固定布局（全部在 `/marimo`）
 
 ```text
 /marimo/
-  models/Qwen3.6-35B-A3B-FP8/     # weights
+  bin/cloudflared                 # 小，必进 package
+  llm-molab/                      # 本仓 clone（或 work/llm-molab）
   llm-lab/
-    .venv-sglang/                 # python env
-    state/serve.env               # durable non-secret config
-    logs/                         # sglang + cloudflared logs
-    configs/                      # optional local overrides
-  work/llm-molab/                 # git clone of public repo
-
-/tmp/.secrets/                    # RE-INJECT after every cold start
-  hf.env
-  llm.env
-  tunnel.token
+    state/serve.env               # 无密钥
+    state/MANIFEST.json
+    .venv-vllm/                   # 大：有配额则留；无则 ensure 重装
+    logs/
+  models/Qwen3.6-35B-A3B-FP8/     # 35G：有配额则留；ensure 续传
+  DiffAudit-Research-Server/      # 已有
 ```
 
-## After restart (fast path)
+## 流程
 
-On operator machine:
-
-```powershell
-molab ensure notebook2
-# re-inject secrets (from ~/.config/server-secrets/llm-molab/)
-molab fs put notebook2 $env:USERPROFILE\.config\server-secrets\llm-molab\llm.env /tmp/.secrets/llm.env
-molab fs put notebook2 $env:USERPROFILE\.config\server-secrets\huggingface\token-download.env /tmp/.secrets/hf.env
-molab fs put notebook2 $env:USERPROFILE\.config\server-secrets\cloudflare\tunnel-molab-llm-tmp.token /tmp/.secrets/tunnel.token
-molab ssh notebook2 -c "chmod 700 /tmp/.secrets && chmod 600 /tmp/.secrets/*; bash /marimo/work/llm-molab/scripts/11_restore.sh"
+```text
+layout
+  → ensure cloudflared → /marimo/bin/cloudflared
+  → ensure model       → /marimo/models/...  (存在 config+safetensors 则 skip)
+  → ensure venv        → /marimo/llm-lab/.venv-vllm
+  → serve + tunnel
+  → write MANIFEST + .llm_package_stamp
+remint 后
+  → 11_restore：stamp/manifest 命中则秒起；否则补下/补装
 ```
 
-If the git clone is missing:
+## 配额探针（必做一次）
 
 ```bash
-git clone --depth 1 https://github.com/DeliciousBuding/llm-molab.git /marimo/work/llm-molab
+bash scripts/15_probe_package_quota.sh
+# 写小文件 + 统计 /marimo 占用
+# remint 后再跑 15_probe_package_quota.sh verify
 ```
 
-`11_restore.sh` will:
+- **remint 后 models 仍在** → 全速 package 持久，日常只热起服  
+- **remint 后 models 没了** → 配额/同步不够；仍写 `/marimo/models`（同 sb 热复用），冷恢复靠 HF 续传；或 rclone 冷备  
 
-1. ensure layout + durable `serve.env`
-2. require secrets
-3. skip model download if `config.json` exists
-4. skip venv if importable
-5. start SGLang API
-6. wait until `/v1/models` is up
-7. start cloudflared → `llm.vectorcontrol.tech`
+## 效率
 
-## Tuning without re-download
-
-Edit durable knobs:
-
-```bash
-$EDITOR /marimo/llm-lab/state/serve.env
-# SERVE_MODE=baseline|prod
-# CONTEXT_LENGTH=65536
-# MEM_FRACTION_STATIC=0.86
-bash /marimo/work/llm-molab/scripts/09_stop_local.sh
-bash /marimo/work/llm-molab/scripts/05_serve_api.sh
-bash /marimo/work/llm-molab/scripts/10_wait_api.sh
-```
-
-API key stays only in `/tmp/.secrets/llm.env` (and operator secret store). Never put it in `serve.env`.
-
-## Operator secret store (Windows)
-
-| File | Role |
+| 场景 | 行为 |
 |------|------|
-| `~/.config/server-secrets/llm-molab/llm.env` | `LLM_API_KEY` + port/path |
-| `~/.config/server-secrets/llm-molab/tunnel-meta.txt` | tunnel id / hostname notes |
-| `~/.config/server-secrets/cloudflare/tunnel-molab-llm-tmp.token` | CF tunnel token |
-| `~/.config/server-secrets/huggingface/token-download.env` | HF download token |
+| 同 sandbox 杀进程 | 不重下，只起服 |
+| remint 且 35G 在 package | 不重下 |
+| remint 且 35G 丢了 | HF 续传（比全量乱下好） |
+| venv | import 成功 skip；失败重装 |
 
-## Cold vs warm
+## 禁止 thrash
 
-| Scenario | Time driver |
-|----------|-------------|
-| Warm restore (weights+venv present) | secret inject + model load + tunnel |
-| Cold (no weights) | HF download ~35G first |
-| Cold (no venv) | `uv pip install sglang[all]` |
+`runtime stop --apply` **只清本机 lease**。lease 不稳时 **不要**连续 ensure/stop，否则容易 410 连环 remint。  
+探活超时：先 `runtime wait`，再操作。

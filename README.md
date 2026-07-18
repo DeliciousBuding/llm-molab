@@ -29,23 +29,24 @@ This repository is **public and secret-free**. Credentials stay in:
 3. Tunnel is transport, not auth. Always set `--api-key` on the server.
 4. Tear down temporary tunnels and DNS when done (`docs/teardown-tunnel.md`).
 
-## Persistence (fast restart)
+## Persistence (package-first)
 
-Weights, venv, and non-secret config live under **`/marimo`** (durable on the same notebook).
-Secrets under **`/tmp/.secrets`** are wiped on sandbox restart — re-inject then:
+**有配额就把权重/venv/cloudflared 塞进 `/marimo` package 树**，remint 后能命中就不再下。  
+密钥只在 `/tmp/.secrets`。见 [docs/persistence.md](docs/persistence.md)。
 
 ```bash
-bash /marimo/work/llm-molab/scripts/11_restore.sh
+bash scripts/15_probe_package_quota.sh probe   # 看占用
+bash scripts/11_restore.sh                     # ensure 全套 + 起 API
+# remint 后再:
+bash scripts/15_probe_package_quota.sh verify
 ```
 
-Details: [docs/persistence.md](docs/persistence.md)
-
-| Durable | Ephemeral |
-|---------|-----------|
-| `/marimo/models/...` | `/tmp/.secrets/*` |
-| `/marimo/llm-lab/.venv-sglang` | process PIDs |
-| `/marimo/llm-lab/state/serve.env` | CUDA graphs |
-| `/marimo/work/llm-molab` | |
+| Package 路径 (`/marimo`) | `/tmp` only |
+|--------------------------|-------------|
+| `models/…` 权重 | `.secrets/*` |
+| `llm-lab/.venv-vllm` | job 日志 |
+| `bin/cloudflared` | |
+| `llm-lab/state/serve.env` | |
 
 ## First boot (sandbox)
 
