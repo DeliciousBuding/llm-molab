@@ -66,7 +66,13 @@ bash scripts/11_restore.sh
 ```bash
 export OPENAI_BASE_URL=https://llm.vectorcontrol.tech/v1
 export OPENAI_API_KEY=...   # same as LLM_API_KEY on server
+# Current vLLM id is the path unless --served-model-name is set:
+export MODEL_ID="/marimo/models/Qwen3.6-35B-A3B-FP8"
 curl "$OPENAI_BASE_URL/models" -H "Authorization: Bearer $OPENAI_API_KEY"
+curl "$OPENAI_BASE_URL/chat/completions" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":64}"
 ```
 
 ## Docs

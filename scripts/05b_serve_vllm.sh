@@ -41,13 +41,15 @@ pkill -f 'vllm.entrypoints' 2>/dev/null || true
 pkill -f 'sglang.launch_server' 2>/dev/null || true
 sleep 2
 
-echo "starting vllm model=$MODEL_PATH host=$HOST port=$PORT ctx=$CTX mem=$MEM"
+SERVED_NAME="${SERVED_MODEL_NAME:-Qwen3.6-35B-A3B-FP8}"
+echo "starting vllm model=$MODEL_PATH served_as=$SERVED_NAME host=$HOST port=$PORT ctx=$CTX mem=$MEM"
 # Prefer modern CLI if present
 if command -v vllm >/dev/null 2>&1; then
   nohup vllm serve "$MODEL_PATH" \
     --host "$HOST" \
     --port "$PORT" \
     --api-key "$LLM_API_KEY" \
+    --served-model-name "$SERVED_NAME" \
     --max-model-len "$CTX" \
     --gpu-memory-utilization "$MEM" \
     --enable-prefix-caching \
@@ -59,6 +61,7 @@ else
     --host "$HOST" \
     --port "$PORT" \
     --api-key "$LLM_API_KEY" \
+    --served-model-name "$SERVED_NAME" \
     --max-model-len "$CTX" \
     --gpu-memory-utilization "$MEM" \
     --enable-prefix-caching \

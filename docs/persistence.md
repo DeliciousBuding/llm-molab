@@ -14,7 +14,7 @@
 | `/tmp/.secrets` | **No** | HF / API key / tunnel token |
 | Process PIDs / CUDA graphs | **No** | Must relaunch |
 
-Assumption: molab keeps `/marimo` workspace storage across relaunch of the **same notebook**. If the platform wipes the workspace, re-run download + venv (scripts handle it).
+**Observed 2026-07-19:** a full molab sandbox **replace** (new `sb-…` id after 410) can wipe `/marimo` even for the same notebook — treat durable paths as “best effort”, not guaranteed. After any new sandbox id, run `11_restore.sh` (it re-downloads / reinstalls if missing). Same-sandbox process restart keeps `/marimo`.
 
 ## Durable layout
 
