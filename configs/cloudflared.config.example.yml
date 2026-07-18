@@ -1,0 +1,6 @@
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /tmp/.secrets/tunnel-credentials.json
+ingress:
+  - hostname: llm.vectorcontrol.tech
+    service: http://127.0.0.1:8000
+  - service: http_status:404

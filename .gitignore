@@ -1,0 +1,39 @@
+# secrets & local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.token
+**/tunnel-*.json
+**/tunnel-*.token
+secrets/
+.secrets/
+tmp/
+*.local
+
+# python
+.venv*/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# models / large
+models/
+*.safetensors
+*.bin
+*.gguf
+*.pt
+*.onnx
+
+# logs & bench artifacts
+logs/
+bench/results*.csv
+*.log
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
