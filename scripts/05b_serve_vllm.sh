@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Serve with vLLM (OpenAI-compatible) as SGLang fallback.
+# Serve with vLLM (OpenAI-compatible). Strips whitespace from env values.
 set -euo pipefail
 
 LAB="${LLM_LAB:-/marimo/llm-lab}"
@@ -12,38 +12,59 @@ if [[ -f /tmp/.secrets/llm.env ]]; then
   set -a; source /tmp/.secrets/llm.env; set +a
 fi
 
+# strip CR/whitespace that Windows env files sometimes leave
+strip() { printf '%s' "$1" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'; }
+LLM_API_KEY="$(strip "${LLM_API_KEY:-}")"
+MODEL_PATH="$(strip "${MODEL_PATH:-/marimo/models/Qwen3.6-35B-A3B-FP8}")"
+HOST="$(strip "${SERVE_HOST:-127.0.0.1}")"
+PORT="$(strip "${SERVE_PORT:-8000}")"
+CTX="$(strip "${CONTEXT_LENGTH:-131072}")"
+MEM="$(strip "${MEM_FRACTION_STATIC:-0.88}")"
+
 : "${LLM_API_KEY:?set LLM_API_KEY}"
-MODEL_PATH="${MODEL_PATH:-/marimo/models/Qwen3.6-35B-A3B-FP8}"
-HOST="${SERVE_HOST:-127.0.0.1}"
-PORT="${SERVE_PORT:-8000}"
+[[ -f "$MODEL_PATH/config.json" ]] || { echo "missing model at $MODEL_PATH" >&2; exit 1; }
+
 LOG="$LAB/logs/vllm-api.log"
-PIDF="$LAB/logs/sglang.pid"   # shared stop path with 09_stop_local
+PIDF="$LAB/logs/sglang.pid"
 
 # shellcheck disable=SC1091
 source "$LAB/.venv-vllm/bin/activate"
 mkdir -p "$LAB/logs"
 
-if [[ -f "$PIDF" ]] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then
-  echo "already_running pid=$(cat "$PIDF")"
-  exit 0
+# kill anything stale
+if [[ -f "$PIDF" ]]; then
+  old="$(cat "$PIDF" || true)"
+  if [[ -n "$old" ]]; then kill "$old" 2>/dev/null || true; fi
+  rm -f "$PIDF"
 fi
-pkill -f 'sglang.launch_server' 2>/dev/null || true
 pkill -f 'vllm.entrypoints' 2>/dev/null || true
-pkill -f 'VLLM::' 2>/dev/null || true
-sleep 1
+pkill -f 'sglang.launch_server' 2>/dev/null || true
+sleep 2
 
-nohup python -m vllm.entrypoints.openai.api_server \
-  --model "$MODEL_PATH" \
-  --host "$HOST" \
-  --port "$PORT" \
-  --api-key "$LLM_API_KEY" \
-  --max-model-len "${CONTEXT_LENGTH:-131072}" \
-  --gpu-memory-utilization "${MEM_FRACTION_STATIC:-0.88}" \
-  --enable-prefix-caching \
-  --reasoning-parser qwen3 \
-  --enable-auto-tool-choice \
-  --tool-call-parser qwen3_coder \
-  >"$LOG" 2>&1 &
+echo "starting vllm model=$MODEL_PATH host=$HOST port=$PORT ctx=$CTX mem=$MEM"
+# Prefer modern CLI if present
+if command -v vllm >/dev/null 2>&1; then
+  nohup vllm serve "$MODEL_PATH" \
+    --host "$HOST" \
+    --port "$PORT" \
+    --api-key "$LLM_API_KEY" \
+    --max-model-len "$CTX" \
+    --gpu-memory-utilization "$MEM" \
+    --enable-prefix-caching \
+    --trust-remote-code \
+    >"$LOG" 2>&1 &
+else
+  nohup python -m vllm.entrypoints.openai.api_server \
+    --model "$MODEL_PATH" \
+    --host "$HOST" \
+    --port "$PORT" \
+    --api-key "$LLM_API_KEY" \
+    --max-model-len "$CTX" \
+    --gpu-memory-utilization "$MEM" \
+    --enable-prefix-caching \
+    --trust-remote-code \
+    >"$LOG" 2>&1 &
+fi
 
 echo $! >"$PIDF"
 echo "vllm_started pid=$(cat "$PIDF") log=$LOG"
