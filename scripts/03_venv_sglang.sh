@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create isolated SGLang venv (absolute paths; molab-safe).
+# Create isolated SGLang venv (absolute paths; molab-safe; durable under /marimo).
 set -euo pipefail
 
 ROOT="/marimo/llm-lab"
@@ -7,7 +7,6 @@ VENV="$ROOT/.venv-sglang"
 mkdir -p "$ROOT"
 cd "$ROOT"
 
-# Prefer real system python over broken uv-managed shims in job env.
 if [[ -x /usr/local/bin/python3.13 ]]; then
   PYBIN=/usr/local/bin/python3.13
 elif [[ -x /usr/bin/python3 ]]; then
@@ -21,7 +20,7 @@ echo "using_python=$PYBIN"
 if command -v uv >/dev/null 2>&1; then
   rm -rf "$VENV"
   uv venv "$VENV" --python "$PYBIN"
-  # flash-attn-4 is pre-release on PyPI; allow prereleases for sglang[all]
+  # flash-attn-4 is pre-release on PyPI
   uv pip install --python "$VENV/bin/python" --prerelease=allow -U "sglang[all]>=0.5.10"
 else
   rm -rf "$VENV"
@@ -41,6 +40,9 @@ try:
     print("sglang", getattr(sglang, "__version__", "unknown"))
 except Exception as e:
     print("sglang_import_error", e)
+    raise
 PY
 "$VENV/bin/pip" freeze > "$ROOT/requirements-sglang.txt" || true
+# mark durable install stamp
+date -u +%Y-%m-%dT%H:%M:%SZ > "$ROOT/state/venv-sglang.installed_at" 2>/dev/null || true
 echo "venv_sglang_ok $VENV"
