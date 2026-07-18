@@ -16,7 +16,9 @@ fi
 export HF_TOKEN
 export HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
 export HF_HOME="${HF_HOME:-/tmp/hf-cache}"
-export HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}"
+# Prefer Xet high performance on current huggingface_hub
+export HF_XET_HIGH_PERFORMANCE="${HF_XET_HIGH_PERFORMANCE:-1}"
+unset HF_HUB_ENABLE_HF_TRANSFER || true
 
 MODEL_ID="${MODEL_ID:-Qwen/Qwen3.6-35B-A3B-FP8}"
 LOCAL_DIR="${MODEL_PATH:-/marimo/models/Qwen3.6-35B-A3B-FP8}"
