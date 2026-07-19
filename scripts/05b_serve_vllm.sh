@@ -57,6 +57,7 @@ ARGS=(
   --max-model-len "$CTX"
   --gpu-memory-utilization "$MEM"
   --trust-remote-code
+  --generation-config vllm
 )
 if [[ "$PREFIX" == "1" || "$PREFIX" == "true" || "$PREFIX" == "yes" ]]; then
   ARGS+=(--enable-prefix-caching)
