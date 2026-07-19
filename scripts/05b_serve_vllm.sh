@@ -30,37 +30,29 @@ MODE="$(strip "${SERVE_MODE:-baseline}")"
 : "${LLM_API_KEY:?set LLM_API_KEY}"
 [[ -f "$MODEL_PATH/config.json" ]] || { echo "missing model at $MODEL_PATH" >&2; exit 1; }
 
-# Patch chat template: disable thinking by default so clients don't need
-# chat_template_kwargs.enable_thinking=false on every request.
-# Qwen3.6 template default-opens think block when enable_thinking is undefined.
-# Force-define it as false at the top of the jinja template.
+# Patch chat template: disable thinking by default.
+# Qwen3.6 opens a <think> block when enable_thinking is not explicitly false.
+# We rewrite the condition: both if/else branches now output empty think block.
+# Clients can re-enable via chat_template_kwargs.enable_thinking=true for deep.
 TEMPLATE_CFG="$MODEL_PATH/tokenizer_config.json"
 if [[ -f "$TEMPLATE_CFG" ]]; then
   python3 -c "
 import json
-
-THINKING_PATCH = '{%- set enable_thinking = false %}'
-
 cfg = json.load(open('$TEMPLATE_CFG'))
 ct = cfg.get('chat_template', '')
-# Only insert if thinking default hasn't been patched already
-if '{%- set enable_thinking = false %}' not in ct:
-    # Insert after first '{%-' line, before the rest of the template
-    lines = ct.split('\\n')
-    out = []
-    inserted = False
-    for line in lines:
-        out.append(line)
-        # Insert right after the line that sets image_count (first substantive jinja line)
-        if not inserted and 'set image_count' in line:
-            out.append(THINKING_PATCH)
-            inserted = True
-    ct = '\\n'.join(out)
-    cfg['chat_template'] = ct
-    json.dump(cfg, open('$TEMPLATE_CFG','w'), indent=2, ensure_ascii=False)
-    print('chat_template: enable_thinking default → false')
-else:
-    print('chat_template: already patched (no-op)')
+# The template has:
+#   {%- if enable_thinking is defined and enable_thinking is false %}
+#       {{- '<think>\\n\\n</think>\\n\\n' }}
+#   {%- else %}
+#       {{- '<think>\\n' }}
+# Replace the else branch output to also be empty think block
+old_else_out = \"{%- else %}\\n        {{- '<think>\\\\n' }}\"
+new_else_out = \"{%- else %}\\n        {{- '<think>\\\\n\\\\n</think>\\\\n\\\\n' }}\"
+count = ct.count(old_else_out)
+ct = ct.replace(old_else_out, new_else_out)
+cfg['chat_template'] = ct
+json.dump(cfg, open('$TEMPLATE_CFG','w'), indent=2, ensure_ascii=False)
+print(f'chat_template: replaced {count} thinking-gate branches')
 " || echo "chat_template_patch_skip"
 fi
 
