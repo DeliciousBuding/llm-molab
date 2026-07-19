@@ -30,6 +30,25 @@ MODE="$(strip "${SERVE_MODE:-baseline}")"
 : "${LLM_API_KEY:?set LLM_API_KEY}"
 [[ -f "$MODEL_PATH/config.json" ]] || { echo "missing model at $MODEL_PATH" >&2; exit 1; }
 
+# Patch chat template: disable thinking by default so clients don't need
+# chat_template_kwargs.enable_thinking=false on every request.
+TEMPLATE_CFG="$MODEL_PATH/tokenizer_config.json"
+if [[ -f "$TEMPLATE_CFG" ]]; then
+  if grep -q '"enable_thinking"' "$TEMPLATE_CFG" 2>/dev/null; then
+    python3 -c "
+import json, sys
+cfg = json.load(open('$TEMPLATE_CFG'))
+ct = cfg.get('chat_template', '')
+if 'enable_thinking' in ct:
+    ct = ct.replace('{% set enable_thinking = true %}', '{% set enable_thinking = false %}')
+    ct = ct.replace(\"{% set enable_thinking = True %}\", \"{% set enable_thinking = false %}\")
+    cfg['chat_template'] = ct
+    json.dump(cfg, open('$TEMPLATE_CFG','w'), indent=2, ensure_ascii=False)
+    print('chat_template: enable_thinking → false')
+" || echo "chat_template_patch_skip"
+  fi
+fi
+
 LOG="$LAB/logs/vllm-api.log"
 PIDF="$LAB/logs/sglang.pid"
 
