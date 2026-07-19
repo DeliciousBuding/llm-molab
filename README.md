@@ -63,7 +63,19 @@ python3 scripts/20_bench.py --profile fast
 bash scripts/17_watchdog.sh once   # API + tunnel 自愈检查
 ```
 
-详表见 [docs/tuning-matrix.md](docs/tuning-matrix.md)。
+### Windows operator（本机）
+
+```powershell
+cd D:\Code\llm\llm-molab
+.\scripts\windows\BringUp-LlmApi.ps1 -Account notebook2 -Profile fast -RunBench
+# 或分步:
+# .\scripts\windows\Wait-MolabReady.ps1 -Account notebook2 -EnsureOnce
+# .\scripts\windows\Restore-LlmApi.ps1 -Account notebook2 -Profile fast
+# .\scripts\windows\Smoke-LlmApi.ps1
+# .\scripts\windows\Bench-LlmApi.ps1 -Profile fast
+```
+
+详表见 [docs/tuning-matrix.md](docs/tuning-matrix.md) · 恢复 [docs/operator-restore.md](docs/operator-restore.md) · 客户端 [docs/client.md](docs/client.md)。
 
 ## First boot (sandbox)
 
