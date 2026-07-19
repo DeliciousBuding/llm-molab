@@ -32,21 +32,36 @@ MODE="$(strip "${SERVE_MODE:-baseline}")"
 
 # Patch chat template: disable thinking by default so clients don't need
 # chat_template_kwargs.enable_thinking=false on every request.
+# Qwen3.6 template default-opens think block when enable_thinking is undefined.
+# Force-define it as false at the top of the jinja template.
 TEMPLATE_CFG="$MODEL_PATH/tokenizer_config.json"
 if [[ -f "$TEMPLATE_CFG" ]]; then
-  if grep -q '"enable_thinking"' "$TEMPLATE_CFG" 2>/dev/null; then
-    python3 -c "
-import json, sys
+  python3 -c "
+import json
+
+THINKING_PATCH = '{%- set enable_thinking = false %}'
+
 cfg = json.load(open('$TEMPLATE_CFG'))
 ct = cfg.get('chat_template', '')
-if 'enable_thinking' in ct:
-    ct = ct.replace('{% set enable_thinking = true %}', '{% set enable_thinking = false %}')
-    ct = ct.replace(\"{% set enable_thinking = True %}\", \"{% set enable_thinking = false %}\")
+# Only insert if thinking default hasn't been patched already
+if '{%- set enable_thinking = false %}' not in ct:
+    # Insert after first '{%-' line, before the rest of the template
+    lines = ct.split('\\n')
+    out = []
+    inserted = False
+    for line in lines:
+        out.append(line)
+        # Insert right after the line that sets image_count (first substantive jinja line)
+        if not inserted and 'set image_count' in line:
+            out.append(THINKING_PATCH)
+            inserted = True
+    ct = '\\n'.join(out)
     cfg['chat_template'] = ct
     json.dump(cfg, open('$TEMPLATE_CFG','w'), indent=2, ensure_ascii=False)
-    print('chat_template: enable_thinking → false')
+    print('chat_template: enable_thinking default → false')
+else:
+    print('chat_template: already patched (no-op)')
 " || echo "chat_template_patch_skip"
-  fi
 fi
 
 LOG="$LAB/logs/vllm-api.log"
