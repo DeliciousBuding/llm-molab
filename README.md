@@ -48,6 +48,23 @@ bash scripts/15_probe_package_quota.sh verify
 | `bin/cloudflared` | |
 | `llm-lab/state/serve.env` | |
 
+## Profiles & bench
+
+| Profile | 要点 |
+|---------|------|
+| `baseline` | 32K · mem 0.80 · 保命 |
+| `fast` | 32K · mem **0.88** · max-num-seqs 32 |
+| `long` | 128K · FP8 KV · 需 A/B |
+
+```bash
+bash scripts/16_apply_profile.sh fast
+bash scripts/05b_serve_vllm.sh && bash scripts/10_wait_api.sh
+python3 scripts/20_bench.py --profile fast
+bash scripts/17_watchdog.sh once   # API + tunnel 自愈检查
+```
+
+详表见 [docs/tuning-matrix.md](docs/tuning-matrix.md)。
+
 ## First boot (sandbox)
 
 ```bash

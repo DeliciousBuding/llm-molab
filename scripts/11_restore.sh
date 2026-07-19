@@ -15,8 +15,17 @@ git reset --hard origin/main 2>/dev/null || true
 chmod +x "$REPO"/scripts/*.sh 2>/dev/null || true
 
 bash "$REPO/scripts/00_layout.sh"
+# Prefer named profiles; default to baseline on first boot.
 if [[ ! -f "$LAB/state/serve.env" ]]; then
-  cp "$REPO/configs/serve.env.example" "$LAB/state/serve.env"
+  if [[ -f "$REPO/configs/serve.baseline.env" ]]; then
+    cp "$REPO/configs/serve.baseline.env" "$LAB/state/serve.env"
+  else
+    cp "$REPO/configs/serve.env.example" "$LAB/state/serve.env"
+  fi
+fi
+# Optional: SERVE_PROFILE=fast|long|baseline overrides file contents on restore.
+if [[ -n "${SERVE_PROFILE:-}" && -f "$REPO/configs/serve.${SERVE_PROFILE}.env" ]]; then
+  bash "$REPO/scripts/16_apply_profile.sh" "$SERVE_PROFILE"
 fi
 # shellcheck disable=SC1091
 set -a; source "$LAB/state/serve.env"; set +a
@@ -67,7 +76,8 @@ bash "$REPO/scripts/07_cloudflared.sh"
 
 bash "$REPO/scripts/12_manifest.sh" write 2>/dev/null || true
 bash "$REPO/scripts/15_probe_package_quota.sh" probe || true
+bash "$REPO/scripts/17_watchdog.sh" once 2>/dev/null || true
 
-echo "api_up engine=$ENGINE package_root=/marimo"
+echo "api_up engine=$ENGINE mode=${SERVE_MODE:-?} package_root=/marimo"
 echo "local  http://127.0.0.1:${SERVE_PORT:-8000}/v1"
 echo "public https://${TUNNEL_HOSTNAME:-llm.vectorcontrol.tech}/v1"
